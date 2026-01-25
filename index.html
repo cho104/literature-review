@@ -219,12 +219,12 @@
             </div>
         </div>
 
-        <div class="p-6 border-t bg-gray-50">
+        <div class="p-6 border-t bg-gray-50 flex flex-col gap-3">
             <button type="button" onclick="exportData()" class="w-full bg-black text-white font-bold py-3 rounded-lg hover:bg-gray-800 transition shadow-lg flex items-center justify-center gap-2">
                 <i class="fa-solid fa-download"></i> Download Report
             </button>
             
-            <button type="button" onclick="printWithCustomName()" class="w-full bg-gray-200 text-black font-bold py-3 rounded-lg hover:bg-gray-300 transition mb-2 flex items-center justify-center gap-2">
+            <button type="button" onclick="printWithCustomName()" class="w-full bg-gray-200 text-black font-bold py-3 rounded-lg hover:bg-gray-300 transition flex items-center justify-center gap-2">
                 <i class="fa-solid fa-file-pdf"></i> Save as PDF
             </button>
             
@@ -464,10 +464,12 @@
         function exportToGitHub() {
             const hostMatch = window.location.host.match(/^([^.]+)\.github\.io$/);
             const pathMatch = window.location.pathname.match(/^\/([^/]+)/);
-            const repoSlug = (hostMatch && pathMatch) 
-                ? `${hostMatch[1]}/${pathMatch[1]}` 
-                : "YOUR_USERNAME/YOUR_REPO_NAME"; 
+            const repoSlug = (hostMatch && pathMatch) ? `${hostMatch[1]}/${pathMatch[1]}` : "YOUR_USERNAME/YOUR_REPO_NAME"; 
             const goal = document.getElementById('synth-goal').value;
+            const prev = document.getElementById('synth-prev').value;
+            const method = document.getElementById('synth-method').value;
+            const impact = document.getElementById('synth-impact').value;
+            const limit = document.getElementById('synth-limit').value;
             const notes = [];
             document.querySelectorAll('.ltx_p, .ltx_paragraph').forEach(p => {
                 if (refactorMap[p.id]) {
@@ -475,15 +477,18 @@
                 }
             });
             let md = `# ${currentTitle}\n\n`;
-            if (goal) md += `**Goal:** ${goal}\n\n`;
-            if (notes.length > 0) md += `## Notes\n${notes.join('\n\n')}`;
+            md += `**Date:** ${new Date().toLocaleDateString()}\n\n`;
+            if (goal) md += `## 🎯 Goal\n${goal}\n\n`;
+            if (prev) md += `## 🔍 Context\n${prev}\n\n`;
+            if (method) md += `## ⚙️ Methodology\n${method}\n\n`;
+            if (impact) md += `## 💥 Impact\n${impact}\n\n`;
+            if (limit) md += `## ⚠️ Limitations\n${limit}\n\n`;
+            if (notes.length > 0) {
+                md += `## 📝 Refactored Notes\n${notes.join('\n\n')}`;
+            }
             const filename = `notes/${currentId}.md`;
             const message = `Add notes for ${currentId}`;
-            const url = `https://github.com/${repoSlug}/new/main?` + 
-                        `filename=${encodeURIComponent(filename)}&` + 
-                        `value=${encodeURIComponent(md)}&` + 
-                        `message=${encodeURIComponent(message)}`;
-
+            const url = `https://github.com/${repoSlug}/new/main?` + `filename=${encodeURIComponent(filename)}&` + `value=${encodeURIComponent(md)}&` + `message=${encodeURIComponent(message)}`;
             window.open(url, '_blank');
         }
     </script>
