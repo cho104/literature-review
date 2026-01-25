@@ -220,13 +220,15 @@
         </div>
 
         <div class="p-6 border-t bg-gray-50">
-            <button onclick="exportData()" class="w-full bg-black text-white font-bold py-3 rounded-lg hover:bg-gray-800 transition shadow-lg flex items-center justify-center gap-2">
+            <button type="button" onclick="exportData()" class="w-full bg-black text-white font-bold py-3 rounded-lg hover:bg-gray-800 transition shadow-lg flex items-center justify-center gap-2">
                 <i class="fa-solid fa-download"></i> Download Report
             </button>
-            <button onclick="window.print()" class="w-full bg-gray-200 text-black font-bold py-3 rounded-lg hover:bg-gray-300 transition mb-2 flex items-center justify-center gap-2">
+            
+            <button type="button" onclick="printWithCustomName()" class="w-full bg-gray-200 text-black font-bold py-3 rounded-lg hover:bg-gray-300 transition mb-2 flex items-center justify-center gap-2">
                 <i class="fa-solid fa-file-pdf"></i> Save as PDF
             </button>
-            <button onclick="exportToGitHub()" class="w-full bg-gray-800 text-white font-bold py-3 rounded-lg hover:bg-black transition flex items-center justify-center gap-2">
+            
+            <button type="button" onclick="exportToGitHub()" class="w-full bg-gray-800 text-white font-bold py-3 rounded-lg hover:bg-black transition flex items-center justify-center gap-2">
                 <i class="fa-brands fa-github"></i> Export to GitHub
             </button>
         </div>
@@ -252,27 +254,38 @@
         let refactorMap = {};
         async function loadPaper() {
             const input = document.getElementById('url-input');
-            // Regex magic, don't touch
             const match = input.value.match(/(\d{4}\.\d{4,5}(v\d+)?)/);
-            if(!match) { 
-                // No logs allowed, just returning
-                return; 
-            }
+            if(!match) return;
             currentId = match[0];
-            try {
-                // Using AllOrigins because CORS exists to make us cry
-                const url = `https://api.allorigins.win/get?url=${encodeURIComponent(`https://arxiv.org/html/${currentId}`)}`;
-                const res = await fetch(url);
-                const data = await res.json();
-                if(!data.contents) throw new Error("Empty");
-                processHTML(data.contents);
-                document.getElementById('landing-view').style.display = 'none';
-                document.getElementById('reader-view').classList.remove('hidden');
-                document.getElementById('fab-ui').classList.remove('hidden');
-            } catch(e) {
-                // Silently failing as requested
-                console.error(e);
+            const proxies = [
+                (url) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
+                (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`
+            ];
+            const targetUrl = `https://arxiv.org/html/${currentId}`;
+            for (const createProxyUrl of proxies) {
+                try {
+                    const res = await fetch(createProxyUrl(targetUrl), {
+                        method: 'GET',
+                        headers: {
+                            'Accept': 'text/html,application/xhtml+xml,application/xml',
+                            'Cache-Control': 'no-cache'
+                        }
+                    });
+                    if (!res.ok) throw new Error("Proxy Rejected");
+                    const html = await res.text();
+                    if (!html.includes('<html') && !html.includes('ltx_page_main')) {
+                        throw new Error("Invalid Content");
+                    }
+                    processHTML(html);
+                    document.getElementById('landing-view').style.display = 'none';
+                    document.getElementById('reader-view').classList.remove('hidden');
+                    document.getElementById('fab-ui').classList.remove('hidden');
+                    return;
+                } catch (e) {
+                    console.warn("rotating", e);
+                }
             }
+            console.error("All proxies failed");
         }
         function processHTML(htmlString) {
             const parser = new DOMParser();
@@ -392,93 +405,86 @@
         function toggleSynthesis() {
             document.getElementById('synthesis-panel').classList.toggle('open');
         }
+        function getExportFilename(ext) {
+            const safeTitle = currentTitle.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+            const date = new Date().toISOString().split('T')[0];
+            return `${date}-${currentId}-${safeTitle}.${ext}`;
+        }
+        function printWithCustomName() {
+            const oldTitle = document.title;
+            document.title = getExportFilename('pdf').replace('.pdf', ''); 
+            window.print();
+            setTimeout(() => document.title = oldTitle, 1000);
+        }
+
         function exportData() {
             const goal = document.getElementById('synth-goal').value;
             const prev = document.getElementById('synth-prev').value;
             const method = document.getElementById('synth-method').value;
             const impact = document.getElementById('synth-impact').value;
             const limit = document.getElementById('synth-limit').value;
-            let md = `# Synthesis Report: ${currentTitle}\n\n`;
-            md += `## 1. Goal\n${goal || "N/A"}\n\n`;
-            md += `## 2. Previous Work / Gap\n${prev || "N/A"}\n\n`;
-            md += `## 3. Methodology\n${method || "N/A"}\n\n`;
-            md += `## 4. Impact\n${impact || "N/A"}\n\n`;
-            md += `## 5. Limitations\n${limit || "N/A"}\n\n`;
-            md += `---\n\n## Refactored Notes\n`;
-            // Rebuilding the markdown from the DOM because preserving order in the map is hard
-            document.querySelectorAll('.ltx_p, .ltx_paragraph').forEach(p => {
-                if(refactorMap[p.id]) {
-                    md += `> ${refactorMap[p.id]}\n\n`;
+            let md = `# ${currentTitle}\n\n`;
+            md += `**ArXiv ID:** ${currentId}\n`;
+            md += `**Date:** ${new Date().toLocaleDateString()}\n\n`;
+            md += `## Synthesis\n`;
+            md += `* **Goal:** ${goal || "N/A"}\n`;
+            md += `* **Context:** ${prev || "N/A"}\n`;
+            md += `* **Method:** ${method || "N/A"}\n`;
+            md += `* **Impact:** ${impact || "N/A"}\n`;
+            md += `* **Limitations:** ${limit || "N/A"}\n\n`;
+            md += `---\n\n`;
+            const root = document.getElementById('paper-content');
+            const blocks = root.querySelectorAll('.ltx_section, .ltx_subsection, .ltx_p, .ltx_paragraph, .ltx_title_section, .ltx_title_subsection, figure');
+            blocks.forEach(el => {
+                if (el.classList.contains('ltx_title_section')) {
+                    md += `\n## ${el.innerText}\n\n`;
+                } 
+                else if (el.classList.contains('ltx_title_subsection')) {
+                    md += `\n### ${el.innerText}\n\n`;
+                }
+                else if (el.classList.contains('ltx_p') || el.classList.contains('ltx_paragraph')) {
+                    if (refactorMap[el.id]) {
+                        md += `> **[REFACTORED]** ${refactorMap[el.id]}\n\n`;
+                    } else {
+                        const cleanText = el.innerText.replace(/\s+/g, ' ').trim();
+                        if(cleanText.length > 0) md += `${cleanText}\n\n`;
+                    }
                 }
             });
             const blob = new Blob([md], { type: 'text/markdown' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `synthesis-${currentId}.md`;
+            a.download = getExportFilename('md'); // Uses the standardized name
             a.click();
         }
         document.getElementById('url-input').addEventListener('keypress', (e) => {
             if(e.key === 'Enter') loadPaper();
         });
-        async function exportToGitHub() {
-            const token = prompt("Enter your GitHub Personal Access Token (Repo scope):");
-            if (!token) return;
-            // TODO: Un-hardcode this before pushing to prod (lol as if)
-            const repoSlug = "YOUR_USERNAME/YOUR_REPO_NAME"; 
+        function exportToGitHub() {
+            const hostMatch = window.location.host.match(/^([^.]+)\.github\.io$/);
+            const pathMatch = window.location.pathname.match(/^\/([^/]+)/);
+            const repoSlug = (hostMatch && pathMatch) 
+                ? `${hostMatch[1]}/${pathMatch[1]}` 
+                : "YOUR_USERNAME/YOUR_REPO_NAME"; 
             const goal = document.getElementById('synth-goal').value;
-            const prev = document.getElementById('synth-prev').value;
-            const method = document.getElementById('synth-method').value;
-            const impact = document.getElementById('synth-impact').value;
-            const limit = document.getElementById('synth-limit').value;
-            let md = `---
-        title: ${currentTitle}
-        id: ${currentId}
-        date: ${new Date().toISOString().split('T')[0]}
-        ---\n\n`;
-            md += `# Synthesis: ${currentTitle}\n\n`;
-            md += `## Goal\n${goal || "N/A"}\n\n## Context\n${prev || "N/A"}\n\n## Methodology\n${method || "N/A"}\n\n## Impact\n${impact || "N/A"}\n\n## Limitations\n${limit || "N/A"}\n\n---\n\n## Refactored Notes\n`;
+            const notes = [];
             document.querySelectorAll('.ltx_p, .ltx_paragraph').forEach(p => {
-                if(refactorMap[p.id]) {
-                    const section = p.closest('.ltx_section');
-                    const sectionTitle = section ? section.querySelector('.ltx_title')?.innerText : "";
-                    md += `### ${sectionTitle || 'Section'}\n> ${refactorMap[p.id]}\n\n`;
+                if (refactorMap[p.id]) {
+                    notes.push(`> ${refactorMap[p.id]}`);
                 }
             });
+            let md = `# ${currentTitle}\n\n`;
+            if (goal) md += `**Goal:** ${goal}\n\n`;
+            if (notes.length > 0) md += `## Notes\n${notes.join('\n\n')}`;
             const filename = `notes/${currentId}.md`;
-            const branch = `note-${currentId}-${Date.now()}`;
-            const headers = { 
-                "Authorization": `token ${token}`, 
-                "Accept": "application/vnd.github.v3+json" 
-            };
-            try {
-                const mainRef = await fetch(`https://api.github.com/repos/${repoSlug}/git/ref/heads/main`, { headers }).then(r => r.json());
-                await fetch(`https://api.github.com/repos/${repoSlug}/git/refs`, {
-                    method: "POST", headers,
-                    body: JSON.stringify({ ref: `refs/heads/${branch}`, sha: mainRef.object.sha })
-                });
-                await fetch(`https://api.github.com/repos/${repoSlug}/contents/${filename}`, {
-                    method: "PUT", headers,
-                    body: JSON.stringify({
-                        message: `Add notes for ${currentId}`,
-                        content: btoa(unescape(encodeURIComponent(md))),
-                        branch: branch
-                    })
-                });
-                await fetch(`https://api.github.com/repos/${repoSlug}/pulls`, {
-                    method: "POST", headers,
-                    body: JSON.stringify({
-                        title: `Notes: ${currentTitle}`,
-                        head: branch,
-                        base: "main",
-                        body: "Auto-generated notes from Research IDE."
-                    })
-                });
-                // Success alert removed as requested. It just works.
-            } catch (e) {
-                console.error(e);
-                // Failure alert removed. Check console if it breaks.
-            }
+            const message = `Add notes for ${currentId}`;
+            const url = `https://github.com/${repoSlug}/new/main?` + 
+                        `filename=${encodeURIComponent(filename)}&` + 
+                        `value=${encodeURIComponent(md)}&` + 
+                        `message=${encodeURIComponent(message)}`;
+
+            window.open(url, '_blank');
         }
     </script>
 </body>
