@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Refactor Reader</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; 
+            background: #ffffff; 
+            height: 100vh; 
+            overflow: hidden;
+        }
+        /* Ar5iv inserts these and they look terrible, begone */
+        body::after { content: none !important; display: none !important; }
+        .ltx_page_navbar, .ltx_page_footer, .ltx_page_header, .ltx_pagination, .ar5iv-footer { display: none !important; }
+        /* Force the width because LaTeX CSS is stubborn */
+        .ltx_page_main { margin: 0 !important; padding: 0 !important; width: 100% !important; max-width: 100% !important; }
+        
+        .ltx_document { 
+            font-family: 'Georgia', serif !important; 
+            font-size: 1.2rem !important; 
+            line-height: 1.8 !important; 
+            color: #1e293b !important; 
+            padding-bottom: 150px; /* Space for the scroll */
+        }
+        /* Hover effects */
+        body:not(.delete-mode) .ltx_p, 
+        body:not(.delete-mode) .ltx_paragraph { 
+            position: relative; 
+            padding: 2px 8px; 
+            border-left: 3px solid transparent; 
+            transition: all 0.1s ease;
+            margin-bottom: 1.5em;
+        }
+        
+        body:not(.delete-mode) .ltx_p:hover, 
+        body:not(.delete-mode) .ltx_paragraph:hover { 
+            background: #f8fafc; 
+            border-left-color: #94a3b8; 
+            cursor: pointer; 
+        }
+
+        .has-summary {
+            border-left-color: #4ade80 !important; 
+            background-color: #f0fdf4 !important;
+        }
+
+        /* THE RED ZONE */
+        body.delete-mode .ltx_document * { cursor: not-allowed !important; }
+        body.delete-mode .ltx_section:hover,
+        body.delete-mode .ltx_p:hover,
+        body.delete-mode figure:hover,
+        body.delete-mode .ltx_title:hover {
+            outline: 2px dashed #ef4444;
+            background-color: rgba(239, 68, 68, 0.1);
+        }
+
+        .edit-widget {
+            margin: 10px 0;
+            padding: 15px;
+            background: #eff6ff; 
+            border: 1px solid #bfdbfe;
+            border-radius: 6px;
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
+        }
+
+        .summary-box {
+            background: #f0fdf4;
+            border: 1px solid #bbf7d0;
+            border-left: 4px solid #22c55e;
+            padding: 14px;
+            margin: 16px 0;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+            font-size: 0.9em;
+            color: #15803d;
+            cursor: pointer;
+        }
+        .summary-box:hover { background: #dcfce7; }
+
+        .hidden-visually { display: none !important; }
+
+        .fab-container {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            z-index: 100;
+            display: flex;
+            flex-direction: column;
+            align-items: end;
+            gap: 12px;
+        }
+        .fab-btn {
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            background: black;
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);
+            cursor: pointer;
+            transition: all 0.2s;
+            font-size: 1.2rem;
+        }
+        .fab-btn:hover { transform: scale(1.1); }
+        .fab-btn.active { background: #ef4444; transform: rotate(15deg); }
+
+        /* Magic slidey panel */
+        #synthesis-panel {
+            position: fixed;
+            top: 0;
+            right: -500px;
+            width: 450px;
+            height: 100vh;
+            background: white;
+            box-shadow: -10px 0 25px rgba(0,0,0,0.1);
+            z-index: 90;
+            transition: right 0.3s ease-in-out;
+            display: flex;
+            flex-direction: column;
+            border-left: 1px solid #e2e8f0;
+        }
+        #synthesis-panel.open { right: 0; }
+
+        .synth-field { margin-bottom: 20px; }
+        .synth-label {
+            font-size: 0.75rem;
+            font-weight: 800;
+            text-transform: uppercase;
+            color: #64748b;
+            margin-bottom: 6px;
+            display: block;
+            letter-spacing: 0.05em;
+        }
+        .synth-input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            color: #334155;
+            min-height: 80px;
+            resize: vertical;
+            background: #f8fafc;
+        }
+        .synth-input:focus { outline: none; border-color: #3b82f6; background: white; }
+
+        @media print {
+            /* Hiding my shame (UI elements) when printing */
+            #fab-ui, #synthesis-panel, #landing-view, .edit-widget, #resizer { display: none !important; }
+            
+            body { height: auto; overflow: visible; background: white; }
+            .ltx_document { padding-bottom: 0; font-size: 12pt !important; color: black !important; }
+            .ltx_page_main { margin: 0; padding: 0; }
+            
+            .summary-box { 
+                border: 1px solid #ccc; 
+                border-left: 4px solid #333; 
+                background-color: #f9f9f9; 
+                color: black;
+                page-break-inside: avoid;
+            }
+            
+            * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        }
+
+    </style>
+</head>
+<body>
+
+    <div id="landing-view" class="absolute inset-0 bg-white z-50 flex flex-col items-center justify-center p-4">
+        <h1 class="text-7xl font-bold mb-6 tracking-tighter">R<span class="text-gray-300">/</span>IDE</h1>
+        <div class="w-full max-w-lg relative group">
+            <input type="text" id="url-input" 
+                class="w-full text-2xl p-4 border-b-2 border-gray-100 outline-none focus:border-black transition-colors bg-transparent placeholder-gray-200 text-center group-hover:border-gray-300" 
+                placeholder="arXiv URL" autofocus>
+            <button onclick="loadPaper()" 
+                class="absolute right-0 top-0 bottom-0 px-4 text-gray-300 hover:text-black transition">
+                <i class="fa-solid fa-arrow-right text-2xl"></i>
+            </button>
+        </div>
+        </div>
+
+    <div id="reader-view" class="w-full h-full overflow-y-auto scroll-smooth hidden">
+        <div id="paper-content" class="max-w-3xl mx-auto px-8 py-16"></div>
+    </div>
+
+    <div id="synthesis-panel">
+        <div class="p-6 border-b flex justify-between items-center bg-gray-50">
+            <h2 class="font-bold text-lg text-gray-800">Final Synthesis</h2>
+            <button onclick="toggleSynthesis()" class="text-gray-400 hover:text-black"><i class="fa-solid fa-times"></i></button>
+        </div>
+        
+        <div class="flex-1 overflow-y-auto p-6">
+            <div class="synth-field">
+                <label class="synth-label text-blue-600">Goal / Problem</label>
+                <textarea id="synth-goal" class="synth-input" placeholder="What are they trying to solve?"></textarea>
+            </div>
+            <div class="synth-field">
+                <label class="synth-label text-orange-600">Previous Work / Gap</label>
+                <textarea id="synth-prev" class="synth-input" placeholder="Why did previous methods fail?"></textarea>
+            </div>
+            <div class="synth-field">
+                <label class="synth-label text-purple-600">Methodologies</label>
+                <textarea id="synth-method" class="synth-input" placeholder="How did they solve it? (Architecture, Data, etc)"></textarea>
+            </div>
+            <div class="synth-field">
+                <label class="synth-label text-green-600">Impact / Results</label>
+                <textarea id="synth-impact" class="synth-input" placeholder="What did they achieve? (SOTA, Efficiency)"></textarea>
+            </div>
+            <div class="synth-field">
+                <label class="synth-label text-red-600">Limitations</label>
+                <textarea id="synth-limit" class="synth-input" placeholder="What is still missing?"></textarea>
+            </div>
+        </div>
+
+        <div class="p-6 border-t bg-gray-50">
+            <button onclick="exportData()" class="w-full bg-black text-white font-bold py-3 rounded-lg hover:bg-gray-800 transition shadow-lg flex items-center justify-center gap-2">
+                <i class="fa-solid fa-download"></i> Download Report
+            </button>
+            <button onclick="window.print()" class="w-full bg-gray-200 text-black font-bold py-3 rounded-lg hover:bg-gray-300 transition mb-2 flex items-center justify-center gap-2">
+                <i class="fa-solid fa-file-pdf"></i> Save as PDF
+            </button>
+            <button onclick="exportToGitHub()" class="w-full bg-gray-800 text-white font-bold py-3 rounded-lg hover:bg-black transition flex items-center justify-center gap-2">
+                <i class="fa-brands fa-github"></i> Export to GitHub
+            </button>
+        </div>
+    </div>
+
+    <div id="fab-ui" class="fab-container hidden">
+        <button class="fab-btn bg-white text-black border border-gray-200 hover:bg-gray-50" title="Open Synthesis Panel" onclick="toggleSynthesis()">
+            <i class="fa-solid fa-pen-nib"></i>
+        </button>
+
+        <button id="btn-delete" class="fab-btn bg-white text-gray-400 border border-gray-200 hover:text-red-500" title="Delete Mode" onclick="toggleDeleteMode()">
+            <i class="fa-solid fa-trash-can"></i>
+        </button>
+        
+        <button class="fab-btn text-xs font-bold" onclick="location.reload()" title="Open New Paper">
+            NEW
+        </button>
+    </div>
+    <script>
+        let currentId = null;
+        let currentTitle = "";
+        let deleteMode = false;
+        let refactorMap = {};
+        async function loadPaper() {
+            const input = document.getElementById('url-input');
+            // Regex magic, don't touch
+            const match = input.value.match(/(\d{4}\.\d{4,5}(v\d+)?)/);
+            if(!match) { 
+                // No logs allowed, just returning
+                return; 
+            }
+            currentId = match[0];
+            try {
+                // Using AllOrigins because CORS exists to make us cry
+                const url = `https://api.allorigins.win/get?url=${encodeURIComponent(`https://arxiv.org/html/${currentId}`)}`;
+                const res = await fetch(url);
+                const data = await res.json();
+                if(!data.contents) throw new Error("Empty");
+                processHTML(data.contents);
+                document.getElementById('landing-view').style.display = 'none';
+                document.getElementById('reader-view').classList.remove('hidden');
+                document.getElementById('fab-ui').classList.remove('hidden');
+            } catch(e) {
+                // Silently failing as requested
+                console.error(e);
+            }
+        }
+        function processHTML(htmlString) {
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(htmlString, 'text/html');
+            const container = document.getElementById('paper-content');
+            const titleEl = doc.querySelector('.ltx_title_document') || doc.querySelector('h1');
+            currentTitle = titleEl ? titleEl.innerText : `Paper ${currentId}`;
+            // Injecting styles directly because hotlinking is unpredictable
+            doc.querySelectorAll('link[rel="stylesheet"]').forEach(l => {
+                const href = l.getAttribute('href');
+                if(href && !href.startsWith('http')) {
+                    const link = document.createElement('link');
+                    link.rel = 'stylesheet';
+                    link.href = `https://arxiv.org${href}`;
+                    document.head.appendChild(link);
+                }
+            });
+            // Fix broken images
+            const baseUrl = `https://arxiv.org/html/${currentId}/`;
+            doc.querySelectorAll('img').forEach(img => {
+                const src = img.getAttribute('src');
+                if(src && !src.startsWith('http')) img.src = baseUrl + src;
+            });
+            // Nuke the nav bars
+            ['.ltx_page_header', '.ltx_page_footer', '.ltx_page_navbar', '.ar5iv-footer', '.ltx_pagination'].forEach(cls => {
+                doc.querySelectorAll(cls).forEach(el => el.remove());
+            });
+            container.innerHTML = (doc.querySelector('.ltx_page_main') || doc.body).innerHTML;
+            initRefactoring(container);
+        }
+        function initRefactoring(root) {
+            const paragraphs = root.querySelectorAll('.ltx_p, .ltx_paragraph');
+            paragraphs.forEach(p => {
+                // If it doesn't have an ID, we give it one. Random enough.
+                if(!p.id) p.id = "p-" + Math.random().toString(36).substr(2, 9);
+                p.addEventListener('click', (e) => {
+                    if(deleteMode) return;
+                    // Don't trigger if user is selecting text
+                    if(window.getSelection().toString().length > 0) return;
+                    if(e.target.closest('.edit-widget') || e.target.closest('.summary-box')) return;
+                    if (p.dataset.summaryContent && !p.classList.contains('hidden-visually')) {
+                        toggleToSummary(p);
+                        return;
+                    }
+                    if (!p.nextElementSibling || !p.nextElementSibling.classList.contains('edit-widget')) {
+                        spawnEditWidget(p);
+                    }
+                });
+            });
+        }
+        function spawnEditWidget(p) {
+            const widget = document.createElement('div');
+            widget.className = 'edit-widget';
+            // InnerHTML is fast, don't @ me
+            widget.innerHTML = `
+                <textarea class="w-full p-3 border border-blue-200 rounded mb-2 text-sm font-mono focus:outline-none focus:ring-2 ring-blue-300" rows="3" placeholder="Rewrite..."></textarea>
+                <div class="flex justify-end gap-2">
+                    <button class="cancel text-gray-400 text-xs px-2">Cancel</button>
+                    <button class="save bg-black text-white text-xs font-bold px-4 py-1 rounded">Done</button>
+                </div>
+            `;
+            p.parentNode.insertBefore(widget, p.nextSibling);
+            const ta = widget.querySelector('textarea');
+            ta.focus();
+            widget.querySelector('.cancel').onclick = () => widget.remove();
+            widget.querySelector('.save').onclick = () => {
+                const text = ta.value.trim();
+                if(text) {
+                    p.dataset.summaryContent = text;
+                    refactorMap[p.id] = text;
+                    createSummaryBox(p, text);
+                    toggleToSummary(p);
+                }
+                widget.remove();
+            };
+        }
+        function createSummaryBox(p, text) {
+            if(p.nextElementSibling && p.nextElementSibling.classList.contains('summary-box')) {
+                p.nextElementSibling.innerText = text;
+                return;
+            }
+            const box = document.createElement('div');
+            box.className = 'summary-box';
+            box.innerText = text;
+            box.onclick = () => toggleToOriginal(p, box);
+            p.parentNode.insertBefore(box, p.nextSibling);
+        }
+        function toggleToSummary(p) {
+            const box = p.nextElementSibling;
+            if(box && box.classList.contains('summary-box')) {
+                p.classList.add('hidden-visually');
+                box.classList.remove('hidden-visually');
+                p.classList.remove('has-summary');
+            }
+        }
+        function toggleToOriginal(p, box) {
+            box.classList.add('hidden-visually');
+            p.classList.remove('hidden-visually');
+            p.classList.add('has-summary');
+        }
+        function toggleDeleteMode() {
+            deleteMode = !deleteMode;
+            document.body.classList.toggle('delete-mode', deleteMode);
+            document.getElementById('btn-delete').classList.toggle('active', deleteMode);
+        }
+        // Global click listener for the destroy mode
+        document.addEventListener('click', (e) => {
+            if (!deleteMode) return;
+            if (e.target.closest('#fab-ui') || e.target.closest('#synthesis-panel')) return;
+            const target = e.target.closest('.ltx_p, .ltx_paragraph, .ltx_section, .ltx_subsection, .ltx_title, .ltx_equation, .ltx_equationgroup, figure, .ltx_bibliography, .ltx_bibitem, .ltx_authors, .ltx_date, .ltx_abstract, .ltx_keywords, .ltx_classification');
+            if (target) {
+                e.preventDefault();
+                e.stopImmediatePropagation();
+                target.remove(); // Yeet
+            }
+        }, true);
+        function toggleSynthesis() {
+            document.getElementById('synthesis-panel').classList.toggle('open');
+        }
+        function exportData() {
+            const goal = document.getElementById('synth-goal').value;
+            const prev = document.getElementById('synth-prev').value;
+            const method = document.getElementById('synth-method').value;
+            const impact = document.getElementById('synth-impact').value;
+            const limit = document.getElementById('synth-limit').value;
+            let md = `# Synthesis Report: ${currentTitle}\n\n`;
+            md += `## 1. Goal\n${goal || "N/A"}\n\n`;
+            md += `## 2. Previous Work / Gap\n${prev || "N/A"}\n\n`;
+            md += `## 3. Methodology\n${method || "N/A"}\n\n`;
+            md += `## 4. Impact\n${impact || "N/A"}\n\n`;
+            md += `## 5. Limitations\n${limit || "N/A"}\n\n`;
+            md += `---\n\n## Refactored Notes\n`;
+            // Rebuilding the markdown from the DOM because preserving order in the map is hard
+            document.querySelectorAll('.ltx_p, .ltx_paragraph').forEach(p => {
+                if(refactorMap[p.id]) {
+                    md += `> ${refactorMap[p.id]}\n\n`;
+                }
+            });
+            const blob = new Blob([md], { type: 'text/markdown' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `synthesis-${currentId}.md`;
+            a.click();
+        }
+        document.getElementById('url-input').addEventListener('keypress', (e) => {
+            if(e.key === 'Enter') loadPaper();
+        });
+        async function exportToGitHub() {
+            const token = prompt("Enter your GitHub Personal Access Token (Repo scope):");
+            if (!token) return;
+            // TODO: Un-hardcode this before pushing to prod (lol as if)
+            const repoSlug = "YOUR_USERNAME/YOUR_REPO_NAME"; 
+            const goal = document.getElementById('synth-goal').value;
+            const prev = document.getElementById('synth-prev').value;
+            const method = document.getElementById('synth-method').value;
+            const impact = document.getElementById('synth-impact').value;
+            const limit = document.getElementById('synth-limit').value;
+            let md = `---
+        title: ${currentTitle}
+        id: ${currentId}
+        date: ${new Date().toISOString().split('T')[0]}
+        ---\n\n`;
+            md += `# Synthesis: ${currentTitle}\n\n`;
+            md += `## Goal\n${goal || "N/A"}\n\n## Context\n${prev || "N/A"}\n\n## Methodology\n${method || "N/A"}\n\n## Impact\n${impact || "N/A"}\n\n## Limitations\n${limit || "N/A"}\n\n---\n\n## Refactored Notes\n`;
+            document.querySelectorAll('.ltx_p, .ltx_paragraph').forEach(p => {
+                if(refactorMap[p.id]) {
+                    const section = p.closest('.ltx_section');
+                    const sectionTitle = section ? section.querySelector('.ltx_title')?.innerText : "";
+                    md += `### ${sectionTitle || 'Section'}\n> ${refactorMap[p.id]}\n\n`;
+                }
+            });
+            const filename = `notes/${currentId}.md`;
+            const branch = `note-${currentId}-${Date.now()}`;
+            const headers = { 
+                "Authorization": `token ${token}`, 
+                "Accept": "application/vnd.github.v3+json" 
+            };
+            try {
+                const mainRef = await fetch(`https://api.github.com/repos/${repoSlug}/git/ref/heads/main`, { headers }).then(r => r.json());
+                await fetch(`https://api.github.com/repos/${repoSlug}/git/refs`, {
+                    method: "POST", headers,
+                    body: JSON.stringify({ ref: `refs/heads/${branch}`, sha: mainRef.object.sha })
+                });
+                await fetch(`https://api.github.com/repos/${repoSlug}/contents/${filename}`, {
+                    method: "PUT", headers,
+                    body: JSON.stringify({
+                        message: `Add notes for ${currentId}`,
+                        content: btoa(unescape(encodeURIComponent(md))),
+                        branch: branch
+                    })
+                });
+                await fetch(`https://api.github.com/repos/${repoSlug}/pulls`, {
+                    method: "POST", headers,
+                    body: JSON.stringify({
+                        title: `Notes: ${currentTitle}`,
+                        head: branch,
+                        base: "main",
+                        body: "Auto-generated notes from Research IDE."
+                    })
+                });
+                // Success alert removed as requested. It just works.
+            } catch (e) {
+                console.error(e);
+                // Failure alert removed. Check console if it breaks.
+            }
+        }
+    </script>
+</body>
+</html>
