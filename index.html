@@ -438,7 +438,7 @@
             if (impact) md += `## Impact\n${impact}\n\n`;
             if (limit) md += `## Limitations\n${limit}\n\n`;
             if (notes.length > 0) {
-                md += `## 📝 Refactored Notes\n${notes.join('\n\n')}`;
+                md += `## Refactored Notes\n${notes.join('\n\n')}`;
             }
             const filename = `notes/${currentId}.md`;
             const message = `Add notes for ${currentId}`;
