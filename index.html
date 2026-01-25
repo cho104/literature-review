@@ -253,7 +253,7 @@
             const match = input.value.match(/(\d{4}\.\d{4,5}(v\d+)?)/);
             if(!match) return;
             currentId = match[0];
-            const proxies = [
+            const proxies = [ // This feels wrong, would tryna bypass cors later without proxy.
                 (url) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
                 (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`
             ];
