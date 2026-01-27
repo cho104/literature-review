@@ -246,6 +246,7 @@
     <script>
         let currentId = null;
         let currentTitle = "";
+        let targetUrl = "";
         let deleteMode = false;
         let refactorMap = {};
         async function loadPaper() {
@@ -257,7 +258,7 @@
                 (url) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
                 (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`
             ];
-            const targetUrl = `https://arxiv.org/html/${currentId}`;
+            targetUrl = `https://arxiv.org/html/${currentId}`;
             for (const createProxyUrl of proxies) {
                 try {
                     const res = await fetch(createProxyUrl(targetUrl), {
@@ -431,6 +432,7 @@
                 }
             });
             let md = `# ${currentTitle}\n\n`;
+            md += `**Paper:** <${targetUrl}>\n\n`;
             md += `**Date:** ${new Date().toLocaleDateString()}\n\n`;
             if (goal) md += `## Goal\n${goal}\n\n`;
             if (prev) md += `## Context\n${prev}\n\n`;
