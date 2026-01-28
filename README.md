@@ -1,10 +1,10 @@
-# Refactor Reader
+# [Refactor Reader](https://cho104.github.io/literature-review/)
 
 Since I zone out after the abstract while reading in PDFs, I want to read the papers more actively.
 I built this because I wanted to refactor papers like legacy code: rewrite the confusing parts, delete the bloat (math I don't get), and save the gist of it so I can pretend I read it later.
 It's a single HTML file. No build step. No npm install. No servers.
 
-## What is it?
+## What is it
 
 It's a wrapper around ArXiv's HTML view that lets you:
 
